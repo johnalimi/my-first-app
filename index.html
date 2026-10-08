@@ -106,6 +106,25 @@
   }
   button.clear:hover { color: var(--text); }
   button.clear[hidden] { display: none; }
+
+  /* ---------- Sync status and the "copy link" button ---------- */
+  .footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 20px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .footer button {
+    border: none;
+    background: none;
+    color: var(--accent);
+    font-size: 13px;
+    cursor: pointer;
+    padding: 0;
+  }
+  .status.error { color: #d9534f; }
 </style>
 </head>
 <body>
@@ -121,17 +140,95 @@
     <ul id="list"></ul>
 
     <button class="clear" id="clear" type="button">Clear completed</button>
+
+    <div class="footer">
+      <span class="status" id="status">Loading…</span>
+      <button id="copyLink" type="button">Copy link for your other devices</button>
+    </div>
   </div>
 
 <script>
-  // ---------- The app's memory ----------
-  // Tasks are saved in the browser, so they're still here after you close the page.
-  let tasks = [];
-  try { tasks = JSON.parse(localStorage.getItem("tasks")) || []; } catch (e) {}
-
-  function save() {
-    try { localStorage.setItem("tasks", JSON.stringify(tasks)); } catch (e) {}
+  // ---------- Which list is this? ----------
+  // Each list has a long random ID in the address (?list=...). Opening the same
+  // address on another device shows the same list. This browser also remembers
+  // its list, so visiting the plain address brings you back to it.
+  function newListId() {
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    return Array.from(bytes, b => b.toString(36).padStart(2, "0")).join("");
   }
+
+  function remembered(key) {
+    try { return localStorage.getItem(key); } catch (e) { return null; }
+  }
+
+  const params = new URLSearchParams(location.search);
+  const isNewList = !params.get("list") && !remembered("listId");
+  const listId = params.get("list") || remembered("listId") || newListId();
+  try { localStorage.setItem("listId", listId); } catch (e) {}
+  params.set("list", listId);
+  history.replaceState(null, "", "?" + params.toString());
+
+  const apiUrl = "/api/tasks?list=" + encodeURIComponent(listId);
+  let tasks = [];
+
+  // ---------- Talking to the backend ----------
+  function setStatus(text, isError) {
+    const status = document.getElementById("status");
+    status.textContent = text;
+    status.className = isError ? "status error" : "status";
+  }
+
+  async function load() {
+    try {
+      const response = await fetch(apiUrl);
+      if (!response.ok) throw new Error("Server said " + response.status);
+      tasks = (await response.json()).tasks;
+
+      // Bring over tasks this browser saved before the app had a backend.
+      const oldTasks = JSON.parse(remembered("tasks") || "[]");
+      if (isNewList && tasks.length === 0 && oldTasks.length > 0) {
+        tasks = oldTasks;
+        save();
+      } else {
+        setStatus("Synced");
+      }
+    } catch (e) {
+      setStatus("Couldn't load your tasks. Check your connection and refresh.", true);
+    }
+    render();
+  }
+
+  // Saves run one after another, so an older save can't overwrite a newer one.
+  let saving = Promise.resolve();
+  function save() {
+    const snapshot = JSON.stringify({ tasks: tasks });
+    setStatus("Saving…");
+    saving = saving.then(async () => {
+      try {
+        const response = await fetch(apiUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: snapshot,
+        });
+        if (!response.ok) throw new Error("Server said " + response.status);
+        setStatus("Synced");
+      } catch (e) {
+        setStatus("Couldn't save. Your last change may be lost.", true);
+      }
+    });
+  }
+
+  // ---------- Copy this list's link ----------
+  document.getElementById("copyLink").onclick = async () => {
+    const button = document.getElementById("copyLink");
+    try {
+      await navigator.clipboard.writeText(location.href);
+      button.textContent = "Link copied!";
+    } catch (e) {
+      button.textContent = "Copy the address bar instead";
+    }
+    setTimeout(() => { button.textContent = "Copy link for your other devices"; }, 2000);
+  };
 
   // ---------- Draw the list on screen ----------
   function render() {
@@ -192,7 +289,7 @@
     }
   };
 
-  render();
+  load();
 </script>
 </body>
 </html>
