@@ -91,6 +91,21 @@
   }
   button.delete:hover { color: #d9534f; }
   .empty { color: var(--muted); text-align: center; padding: 20px 0; }
+
+  /* ---------- The "clear completed" button ---------- */
+  button.clear {
+    display: block;
+    margin: 16px auto 0;
+    padding: 8px 14px;
+    font-size: 14px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: none;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  button.clear:hover { color: var(--text); }
+  button.clear[hidden] { display: none; }
 </style>
 </head>
 <body>
@@ -104,6 +119,8 @@
     </form>
 
     <ul id="list"></ul>
+
+    <button class="clear" id="clear" type="button">Clear completed</button>
   </div>
 
 <script>
@@ -150,7 +167,17 @@
     const left = tasks.filter(t => !t.done).length;
     document.getElementById("count").textContent =
       left === 1 ? "1 task left" : left + " tasks left";
+
+    // Only show "Clear completed" when there's something to clear
+    document.getElementById("clear").hidden = !tasks.some(t => t.done);
   }
+
+  // ---------- Remove all finished tasks ----------
+  document.getElementById("clear").onclick = () => {
+    tasks = tasks.filter(t => !t.done);
+    save();
+    render();
+  };
 
   // ---------- Add a new task when you press Add ----------
   document.getElementById("form").onsubmit = (event) => {
